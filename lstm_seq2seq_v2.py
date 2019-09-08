@@ -40,18 +40,19 @@ from IPython.display import clear_output
 # Parameters #
 ##############
 
-num_examples            = 5000
-retain_threshold        = 6
-min_perc_sent           = 0.2
+num_examples            = 7000
+retain_threshold        = 15
+min_perc_sent           = 0.5
 max_perc_sent           = 0.7
 corpus_samples          = 1
-freq_threshold          = 30
+freq_threshold          = 2
 
-max_sentence_len        = 30
+max_sentence_len        = 100
 
+epochs                  = 50
 embedding_dim           = 256
 units                   = 512
-batch_size              = 64
+batch_size              = 128
 
 workpath                = '/home/ladvien/nn_lovecraft'
 save_model_path         = '/home/ladvien/nn_lovecraft/data/models'
@@ -60,6 +61,7 @@ corpus_path             = workpath + '/data/lovecraft_corpus.txt'
 #################
 # Special Tokens
 #################
+
 start_of_sent           = '<sos>'  
 end_of_sent             = '<eos>'
 low_freq_word           = '<lfw>'
@@ -85,9 +87,6 @@ def clean_special_chars(text, convert_to_space = [], remove = []):
     rx = '[' + re.escape(''.join(remove)) + ']'
     text = re.sub(rx, '', text)
     return text
-
-
-
 
 def commonize_low_freq_words(sentences, word_frequencies, threshold, low_freq_word):
     
@@ -424,9 +423,7 @@ def train_step(inp, targ, enc_hidden):
   return batch_loss
 
 
-EPOCHS = 10
-
-for epoch in range(EPOCHS):
+for epoch in range(epochs):
   start = time.time()
 
   enc_hidden = encoder.initialize_hidden_state()
@@ -491,21 +488,21 @@ def evaluate(sentence):
     return result, sentence, attention_plot
 
 # function for plotting the attention weights
-#def plot_attention(attention, sentence, predicted_sentence):
-#    fig = plt.figure(figsize=(10,10))
-#    ax = fig.add_subplot(1, 1, 1)
-#    ax.matshow(attention, cmap='viridis')
-#
-#    fontdict = {'fontsize': 14}
-#
-#    ax.set_xticklabels([''] + sentence, fontdict=fontdict, rotation=90)
-#    ax.set_yticklabels([''] + predicted_sentence, fontdict=fontdict)
-#
-#    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
-#    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
-#
-#    plt.show()
-#    
+def plot_attention(attention, sentence, predicted_sentence):
+    fig = plt.figure(figsize=(5, 5))
+    ax = fig.add_subplot(1, 1, 1)
+    ax.matshow(attention, cmap='viridis')
+
+    fontdict = {'fontsize': 14}
+
+    ax.set_xticklabels([''] + sentence, fontdict=fontdict, rotation=90)
+    ax.set_yticklabels([''] + predicted_sentence, fontdict=fontdict)
+
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
+
+    plt.show()
+    
 def translate(sentence):
     result, sentence, attention_plot = evaluate(sentence)
     print('Input: %s' % (sentence))
@@ -517,4 +514,13 @@ def translate(sentence):
 # restoring the latest checkpoint in checkpoint_dir
 checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
 
-translate(u' <sos>  after aeons')
+def get_random_head(heads):
+    return heads[random.randint(0, len(heads))]
+    
+
+# Test 5 heads
+for _ in range(5):
+    translate(get_random_head(heads))
+    
+# Test my own
+translate(u' <sos>  hidden were the dark ages of my youth ')
