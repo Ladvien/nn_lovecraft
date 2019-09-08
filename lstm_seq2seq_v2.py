@@ -5,27 +5,53 @@ Created on Sat Dec 29 23:49:00 2018
 
 @author: ladvien
 """
-import io
-import re
-import random
-import os
-import time
+from __future__ import absolute_import, division, print_function, unicode_literals
 
+try:
+  # %tensorflow_version only exists in Colab.
+  %tensorflow_version 2.x
+except Exception:
+  pass
 import tensorflow as tf
-import tensorflow.keras as keras
+
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from sklearn.model_selection import train_test_split
+
+import unicodedata
+import re
+import numpy as np
+import os
+import io
+import time
+import random
+import tensorflow.contrib.eager as tfe
+tf.enable_eager_execution()
+
+from IPython.display import clear_output
+
+##############
+# References #
+##############
+# http://complx.me/2016-12-31-practical-seq2seq/
+# https://colab.research.google.com/github/tensorflow/tensorflow/blob/master/tensorflow/contrib/eager/python/examples/nmt_with_attention/nmt_with_attention.ipynb
 
 ##############
 # Parameters #
 ##############
 
+num_examples            = 5000
 retain_threshold        = 6
 min_perc_sent           = 0.2
 max_perc_sent           = 0.7
-corpus_samples          = 3
-freq_threshold          = 1
+corpus_samples          = 1
+freq_threshold          = 30
 
-max_sentence_len        = 300
+max_sentence_len        = 30
+
+embedding_dim           = 256
+units                   = 512
+batch_size              = 64
 
 workpath                = '/home/ladvien/nn_lovecraft'
 save_model_path         = '/home/ladvien/nn_lovecraft/data/models'
@@ -60,31 +86,33 @@ def clean_special_chars(text, convert_to_space = [], remove = []):
     text = re.sub(rx, '', text)
     return text
 
-def commonize_low_freq_words(sentences, word_frequencies, threshold):
 
-    bad_words = []
-    for word in word_frequencies:
-        if word_frequencies[word] < threshold:
-            bad_words.append(word)
-            print(word)
+
+
+def commonize_low_freq_words(sentences, word_frequencies, threshold, low_freq_word):
+    
+    index = 0
+    
+    low_freq = []
+    for key, value in word_frequencies.items():
+        if value < freq_threshold:
+            low_freq.append(key)
             
-    if len(bad_words) < 1:
-        return sentences
-    
-    new_sentences = []
+    clean_sentences = []
     for sentence in sentences:
-        if sentence == ' ':
-            continue
-        new_sentence = []
+        clean_sentence = ''
         for word in sentence.split(' '):
-            if word in bad_words:
-                new_sentence += low_freq_word
+            if word in low_freq:
+                clean_sentence += ' ' + low_freq_word
             else:
-                new_sentence += word
-            new_sentence += ' '
-        new_sentences.append(''.join(new_sentence))
-    
-    sentences = new_sentences
+                clean_sentence += ' ' + word
+        clean_sentences.append(clean_sentence)      
+        index += 1
+        if index % 10 == 0:
+            clear_output()
+            print(f'Complete: {str(round(index / len(sentences), 2) * 100)}%')        
+
+    return clean_sentences
     
 # Get list of distinct words in string
 def get_words_and_frequencies(text, delimiter = ' '):
@@ -102,8 +130,6 @@ def get_words_and_frequencies(text, delimiter = ' '):
 ########################################
 # Load the Corpus                      #
 ########################################
-
-
 with io.open(corpus_path, encoding='utf-8') as f:
     text = f.read().lower()
     
@@ -117,6 +143,18 @@ text = clean_special_chars(text)
 
 # Split into sentences by '.', ',', '!', ';', or '?'
 sentences = re.split(r'[.,!?;]', text)
+
+# Limit sentence size
+
+new_sentences = []
+for sentence in sentences:
+    if len(sentence) < max_sentence_len:
+        new_sentences.append(sentence)
+
+sentences = new_sentences
+
+# Limit the samples
+sentences = sentences[0:num_examples]
 
 # Add start and stop tokens.
 sentences = [start_of_sent + ' ' + text + ' ' + end_of_sent for text in sentences]
@@ -135,10 +173,7 @@ for i in range(len(sentences)):
 word_freqs = get_words_and_frequencies(text)
 
 # Divide the cleaned corpus into sentences
-sentences = commonize_low_freq_words(sentences, word_freqs, freq_threshold)
-
-# Get a list of distinct words.
-distinct_words = list(word_freqs.keys())
+sentences = commonize_low_freq_words(sentences, word_freqs, freq_threshold, low_freq_word)
 
 #################################
 # Get Sentence Heads and Butts  #
@@ -173,7 +208,7 @@ for i in range(len(heads)):
 #################################
 # Tokenize Heads and Butts      #
 #################################
-tokenizer = keras.preprocessing.text.Tokenizer(filters='!"#$%&()*+,-./:;=?@[\\]^_`{|}~\t\n')
+tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='!"#$%&()*+,-./:;=?@[\\]^_`{|}~\t\n')
 
 # Include model signals in the token set.
 special_tokens = [start_of_sent, end_of_sent, low_freq_word]
@@ -218,19 +253,21 @@ convert(tokenizer, target_tensor_train[random_sent])
 ########################
 # MODEL Setup
 ########################
-BUFFER_SIZE = len(input_tensor_train)
-BATCH_SIZE = 64
-steps_per_epoch = len(input_tensor_train)//BATCH_SIZE
-embedding_dim = 256
-units = 1024
-vocab_inp_size = len(tokenizer.word_index)+1
-vocab_tar_size = len(tokenizer.word_index)+1
+BUFFER_SIZE             = len(input_tensor_train)
+steps_per_epoch         = len(input_tensor_train) // batch_size
+
+vocab_inp_size          = len(tokenizer.word_index) + 1
+vocab_tar_size          = len(tokenizer.word_index) + 1
 
 dataset = tf.data.Dataset.from_tensor_slices((input_tensor_train, target_tensor_train)).shuffle(BUFFER_SIZE)
-dataset = dataset.batch(BATCH_SIZE, drop_remainder=True)
+dataset = dataset.batch(batch_size, drop_remainder=True)
 
 example_input_batch, example_target_batch = next(iter(dataset))
 example_input_batch.shape, example_target_batch.shape
+
+
+
+
 
 class Encoder(tf.keras.Model):
   def __init__(self, vocab_size, embedding_dim, enc_units, batch_sz):
@@ -251,7 +288,7 @@ class Encoder(tf.keras.Model):
   def initialize_hidden_state(self):
     return tf.zeros((self.batch_sz, self.enc_units))
 
-encoder = Encoder(vocab_inp_size, embedding_dim, units, BATCH_SIZE)
+encoder = Encoder(vocab_inp_size, embedding_dim, units, batch_size)
 
 # sample input
 sample_hidden = encoder.initialize_hidden_state()
@@ -329,9 +366,9 @@ class Decoder(tf.keras.Model):
 
     return x, state, attention_weights
 
-decoder = Decoder(vocab_tar_size, embedding_dim, units, BATCH_SIZE)
+decoder = Decoder(vocab_tar_size, embedding_dim, units, batch_size)
 
-sample_decoder_output, _, _ = decoder(tf.random.uniform((64, 1)),
+sample_decoder_output, _, _ = decoder(tf.random.uniform((batch_size, 1)),
                                       sample_hidden, sample_output)
 
 print ('Decoder output shape: (batch_size, vocab size) {}'.format(sample_decoder_output.shape))
@@ -364,7 +401,7 @@ def train_step(inp, targ, enc_hidden):
 
     dec_hidden = enc_hidden
 
-    dec_input = tf.expand_dims([tokenizer.word_index[start_of_sent]] * BATCH_SIZE, 1)
+    dec_input = tf.expand_dims([tokenizer.word_index[start_of_sent]] * batch_size, 1)
 
     # Teacher forcing - feeding the target as the next input
     for t in range(1, targ.shape[1]):
@@ -383,7 +420,7 @@ def train_step(inp, targ, enc_hidden):
   gradients = tape.gradient(loss, variables)
 
   optimizer.apply_gradients(zip(gradients, variables))
-
+  print(type(batch_loss))
   return batch_loss
 
 
@@ -410,3 +447,74 @@ for epoch in range(EPOCHS):
   print('Epoch {} Loss {:.4f}'.format(epoch + 1,
                                       total_loss / steps_per_epoch))
   print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
+  
+  
+  
+def evaluate(sentence):
+    attention_plot = np.zeros((max_length_butts, max_length_heads))
+    sentence = [x for x in sentence.split(' ') if x != '']
+    sentence = ' '.join(sentence)
+    print(sentence)
+    inputs = [tokenizer.word_index[i] for i in sentence.split(' ')]
+    inputs = tf.keras.preprocessing.sequence.pad_sequences([inputs],
+                                                           maxlen=max_length_heads,
+                                                           padding='post')
+    inputs = tf.convert_to_tensor(inputs)
+    
+    result = ''
+    
+    hidden = [tf.zeros((1, units))]
+    enc_out, enc_hidden = encoder(inputs, hidden)
+    
+    dec_hidden = enc_hidden
+    dec_input = tf.expand_dims([tokenizer.word_index[start_of_sent]], 0)
+    
+    for t in range(max_length_butts):
+        predictions, dec_hidden, attention_weights = decoder(dec_input,
+                                                             dec_hidden,
+                                                             enc_out)
+    
+        # storing the attention weights to plot later on
+        attention_weights = tf.reshape(attention_weights, (-1, ))
+        attention_plot[t] = attention_weights.numpy()
+    
+        predicted_id = tf.argmax(predictions[0]).numpy()
+    
+        result += tokenizer.index_word[predicted_id] + ' '
+    
+        if tokenizer.index_word[predicted_id] == end_of_sent:
+            return result, sentence, attention_plot
+    
+        # the predicted ID is fed back into the model
+        dec_input = tf.expand_dims([predicted_id], 0)
+    
+    return result, sentence, attention_plot
+
+# function for plotting the attention weights
+#def plot_attention(attention, sentence, predicted_sentence):
+#    fig = plt.figure(figsize=(10,10))
+#    ax = fig.add_subplot(1, 1, 1)
+#    ax.matshow(attention, cmap='viridis')
+#
+#    fontdict = {'fontsize': 14}
+#
+#    ax.set_xticklabels([''] + sentence, fontdict=fontdict, rotation=90)
+#    ax.set_yticklabels([''] + predicted_sentence, fontdict=fontdict)
+#
+#    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+#    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
+#
+#    plt.show()
+#    
+def translate(sentence):
+    result, sentence, attention_plot = evaluate(sentence)
+    print('Input: %s' % (sentence))
+    print('Predicted translation: {}'.format(result))
+
+    attention_plot = attention_plot[:len(result.split(' ')), :len(sentence.split(' '))]
+    plot_attention(attention_plot, sentence.split(' '), result.split(' '))
+    
+# restoring the latest checkpoint in checkpoint_dir
+checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
+
+translate(u' <sos>  after aeons')
