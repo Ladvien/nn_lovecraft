@@ -40,19 +40,22 @@ from IPython.display import clear_output
 # Parameters #
 ##############
 
-num_examples            = 7000
+num_examples            = 50000
 retain_threshold        = 15
 min_perc_sent           = 0.5
 max_perc_sent           = 0.7
 corpus_samples          = 1
 freq_threshold          = 2
 
-max_sentence_len        = 100
+max_sentence_len        = 150
 
-epochs                  = 50
+epochs                  = 150
 embedding_dim           = 256
-units                   = 512
-batch_size              = 128
+units                   = 1024
+batch_size              = 64
+attention_units         = 10
+decoder_dropout         = 0.5   
+steps_per_epoch         = 10000
 
 workpath                = '/home/ladvien/nn_lovecraft'
 save_model_path         = '/home/ladvien/nn_lovecraft/data/models'
@@ -253,7 +256,7 @@ convert(tokenizer, target_tensor_train[random_sent])
 # MODEL Setup
 ########################
 BUFFER_SIZE             = len(input_tensor_train)
-steps_per_epoch         = len(input_tensor_train) // batch_size
+
 
 vocab_inp_size          = len(tokenizer.word_index) + 1
 vocab_tar_size          = len(tokenizer.word_index) + 1
@@ -323,14 +326,14 @@ class BahdanauAttention(tf.keras.Model):
 
     return context_vector, attention_weights
 
-attention_layer = BahdanauAttention(10)
+attention_layer = BahdanauAttention(attention_units)
 attention_result, attention_weights = attention_layer(sample_hidden, sample_output)
 
 print("Attention result shape: (batch size, units) {}".format(attention_result.shape))
 print("Attention weights shape: (batch_size, sequence_length, 1) {}".format(attention_weights.shape))
 
 class Decoder(tf.keras.Model):
-  def __init__(self, vocab_size, embedding_dim, dec_units, batch_sz):
+  def __init__(self, vocab_size, embedding_dim, dec_units, batch_sz, dropout = 0.5):
     super(Decoder, self).__init__()
     self.batch_sz = batch_sz
     self.dec_units = dec_units
@@ -339,6 +342,7 @@ class Decoder(tf.keras.Model):
                                    return_sequences=True,
                                    return_state=True,
                                    recurrent_initializer='glorot_uniform')
+    self.dropout = tf.keras.layers.Dropout(dropout)
     self.fc = tf.keras.layers.Dense(vocab_size)
 
     # used for attention
@@ -360,12 +364,15 @@ class Decoder(tf.keras.Model):
     # output shape == (batch_size * 1, hidden_size)
     output = tf.reshape(output, (-1, output.shape[2]))
 
+    # dropout
+    x = self.dropout(output)
+
     # output shape == (batch_size, vocab)
-    x = self.fc(output)
+    x = self.fc(x)
 
     return x, state, attention_weights
 
-decoder = Decoder(vocab_tar_size, embedding_dim, units, batch_size)
+decoder = Decoder(vocab_tar_size, embedding_dim, units, batch_size, decoder_dropout)
 
 sample_decoder_output, _, _ = decoder(tf.random.uniform((batch_size, 1)),
                                       sample_hidden, sample_output)
@@ -433,7 +440,7 @@ for epoch in range(epochs):
     batch_loss = train_step(inp, targ, enc_hidden)
     total_loss += batch_loss
 
-    if batch % 100 == 0:
+    if batch % 5 == 0:
         print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1,
                                                      batch,
                                                      batch_loss.numpy()))
@@ -443,7 +450,7 @@ for epoch in range(epochs):
 
   print('Epoch {} Loss {:.4f}'.format(epoch + 1,
                                       total_loss / steps_per_epoch))
-  print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
+  print('Time taken for 1 epoch {} sec\n'.format(round(time.time() - start), 2))
   
   
   
@@ -451,7 +458,6 @@ def evaluate(sentence):
     attention_plot = np.zeros((max_length_butts, max_length_heads))
     sentence = [x for x in sentence.split(' ') if x != '']
     sentence = ' '.join(sentence)
-    print(sentence)
     inputs = [tokenizer.word_index[i] for i in sentence.split(' ')]
     inputs = tf.keras.preprocessing.sequence.pad_sequences([inputs],
                                                            maxlen=max_length_heads,
@@ -523,4 +529,4 @@ for _ in range(5):
     translate(get_random_head(heads))
     
 # Test my own
-translate(u' <sos>  hidden were the dark ages of my youth ')
+translate(u' <sos>  hidden were the dark ages of my youth so the places i went were stolen from the wicked ')
