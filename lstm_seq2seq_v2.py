@@ -28,8 +28,6 @@ import random
 import tensorflow.contrib.eager as tfe
 tf.enable_eager_execution()
 
-from IPython.display import clear_output
-
 ##############
 # References #
 ##############
@@ -49,13 +47,16 @@ freq_threshold          = 2
 
 max_sentence_len        = 150
 
-epochs                  = 150
-embedding_dim           = 256
+epochs                  = 300
+embedding_dim           = 512
 units                   = 1024
-batch_size              = 64
+batch_size              = 128
 attention_units         = 10
+decoder_hidden_units    = 64
 decoder_dropout         = 0.5   
 steps_per_epoch         = 10000
+
+split_sent_on           = r'[.,!?;]'
 
 workpath                = '/home/ladvien/nn_lovecraft'
 save_model_path         = '/home/ladvien/nn_lovecraft/data/models'
@@ -93,6 +94,8 @@ def clean_special_chars(text, convert_to_space = [], remove = []):
 
 def commonize_low_freq_words(sentences, word_frequencies, threshold, low_freq_word):
     
+    print(f'Replacing low-frequency words with {low_freq_word}')
+    
     index = 0
     
     low_freq = []
@@ -110,9 +113,9 @@ def commonize_low_freq_words(sentences, word_frequencies, threshold, low_freq_wo
                 clean_sentence += ' ' + word
         clean_sentences.append(clean_sentence)      
         index += 1
-        if index % 10 == 0:
-            clear_output()
-            print(f'Complete: {str(round(index / len(sentences), 2) * 100)}%')        
+        perc_comp = int(round((index / len(sentences)) * 100, 2))
+        if perc_comp % 10 == 0:
+            print(f'Complete: {str(perc_comp)}%')        
 
     return clean_sentences
     
@@ -144,7 +147,7 @@ with io.open(corpus_path, encoding='utf-8') as f:
 text = clean_special_chars(text)
 
 # Split into sentences by '.', ',', '!', ';', or '?'
-sentences = re.split(r'[.,!?;]', text)
+sentences = re.split(split_sent_on, text)
 
 # Limit sentence size
 
@@ -270,7 +273,9 @@ example_input_batch.shape, example_target_batch.shape
 
 
 
-
+#################
+# Seq2Seq
+#################
 class Encoder(tf.keras.Model):
   def __init__(self, vocab_size, embedding_dim, enc_units, batch_sz):
     super(Encoder, self).__init__()
@@ -333,7 +338,7 @@ print("Attention result shape: (batch size, units) {}".format(attention_result.s
 print("Attention weights shape: (batch_size, sequence_length, 1) {}".format(attention_weights.shape))
 
 class Decoder(tf.keras.Model):
-  def __init__(self, vocab_size, embedding_dim, dec_units, batch_sz, dropout = 0.5):
+  def __init__(self, vocab_size, embedding_dim, dec_units, batch_sz, hidden, dropout = 0.5):
     super(Decoder, self).__init__()
     self.batch_sz = batch_sz
     self.dec_units = dec_units
@@ -343,12 +348,13 @@ class Decoder(tf.keras.Model):
                                    return_state=True,
                                    recurrent_initializer='glorot_uniform')
     self.dropout = tf.keras.layers.Dropout(dropout)
+    self.hidden  = tf.keras.layers.Dense(hidden)
     self.fc = tf.keras.layers.Dense(vocab_size)
 
     # used for attention
     self.attention = BahdanauAttention(self.dec_units)
 
-  def call(self, x, hidden, enc_output):
+  def call(self, x, hidden, enc_output, dropout = True):
     # enc_output shape == (batch_size, max_length, hidden_size)
     context_vector, attention_weights = self.attention(hidden, enc_output)
 
@@ -365,19 +371,29 @@ class Decoder(tf.keras.Model):
     output = tf.reshape(output, (-1, output.shape[2]))
 
     # dropout
-    x = self.dropout(output)
+    if dropout:
+        output = self.dropout(output)
+    
+    output = self.hidden(output)
+    
+    if dropout:
+        output = self.dropout(output)
 
     # output shape == (batch_size, vocab)
-    x = self.fc(x)
+    x = self.fc(output)
 
     return x, state, attention_weights
 
-decoder = Decoder(vocab_tar_size, embedding_dim, units, batch_size, decoder_dropout)
+decoder = Decoder(vocab_tar_size, embedding_dim, units, batch_size, decoder_hidden_units, decoder_dropout)
 
 sample_decoder_output, _, _ = decoder(tf.random.uniform((batch_size, 1)),
                                       sample_hidden, sample_output)
 
 print ('Decoder output shape: (batch_size, vocab size) {}'.format(sample_decoder_output.shape))
+
+#################
+# Optimizer
+#################
 
 optimizer = tf.keras.optimizers.Adam()
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
@@ -392,11 +408,19 @@ def loss_function(real, pred):
 
   return tf.reduce_mean(loss_)
 
+#################
+# Save Best
+#################
 checkpoint_dir      = './training_checkpoints'
 checkpoint_prefix   = os.path.join(checkpoint_dir, 'ckpt')
 checkpoint          = tf.train.Checkpoint(optimizer=optimizer,
                                  encoder=encoder,
                                  decoder=decoder)
+
+
+####################
+# Train Functions
+####################
 
 @tf.function
 def train_step(inp, targ, enc_hidden):
@@ -430,30 +454,9 @@ def train_step(inp, targ, enc_hidden):
   return batch_loss
 
 
-for epoch in range(epochs):
-  start = time.time()
-
-  enc_hidden = encoder.initialize_hidden_state()
-  total_loss = 0
-
-  for (batch, (inp, targ)) in enumerate(dataset.take(steps_per_epoch)):
-    batch_loss = train_step(inp, targ, enc_hidden)
-    total_loss += batch_loss
-
-    if batch % 5 == 0:
-        print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1,
-                                                     batch,
-                                                     batch_loss.numpy()))
-  # saving (checkpoint) the model every 2 epochs
-  if (epoch + 1) % 2 == 0:
-    checkpoint.save(file_prefix = checkpoint_prefix)
-
-  print('Epoch {} Loss {:.4f}'.format(epoch + 1,
-                                      total_loss / steps_per_epoch))
-  print('Time taken for 1 epoch {} sec\n'.format(round(time.time() - start), 2))
-  
-  
-  
+######################
+# Evalulate Functions
+######################
 def evaluate(sentence):
     attention_plot = np.zeros((max_length_butts, max_length_heads))
     sentence = [x for x in sentence.split(' ') if x != '']
@@ -475,7 +478,8 @@ def evaluate(sentence):
     for t in range(max_length_butts):
         predictions, dec_hidden, attention_weights = decoder(dec_input,
                                                              dec_hidden,
-                                                             enc_out)
+                                                             enc_out,
+                                                             False)
     
         # storing the attention weights to plot later on
         attention_weights = tf.reshape(attention_weights, (-1, ))
@@ -493,6 +497,7 @@ def evaluate(sentence):
     
     return result, sentence, attention_plot
 
+    
 # function for plotting the attention weights
 def plot_attention(attention, sentence, predicted_sentence):
     fig = plt.figure(figsize=(5, 5))
@@ -509,24 +514,64 @@ def plot_attention(attention, sentence, predicted_sentence):
 
     plt.show()
     
-def translate(sentence):
+def translate(sentence, plot = False):
     result, sentence, attention_plot = evaluate(sentence)
     print('Input: %s' % (sentence))
     print('Predicted translation: {}'.format(result))
-
-    attention_plot = attention_plot[:len(result.split(' ')), :len(sentence.split(' '))]
-    plot_attention(attention_plot, sentence.split(' '), result.split(' '))
     
-# restoring the latest checkpoint in checkpoint_dir
-checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
+    if plot:
+        attention_plot = attention_plot[:len(result.split(' ')), :len(sentence.split(' '))]
+        plot_attention(attention_plot, sentence.split(' '), result.split(' '))
+
 
 def get_random_head(heads):
     return heads[random.randint(0, len(heads))]
+
+
+######################
+# Train
+######################
+for epoch in range(epochs):
+  start = time.time()
+
+  enc_hidden = encoder.initialize_hidden_state()
+  total_loss = 0
+
+  for (batch, (inp, targ)) in enumerate(dataset.take(steps_per_epoch)):
+    batch_loss = train_step(inp, targ, enc_hidden)
+    total_loss += batch_loss
+
+    if batch % 5 == 0:
+        print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1,
+                                                     batch,
+                                                     batch_loss.numpy()))
+        
+  # saving (checkpoint) the model every 2 epochs
+  if (epoch + 1) % 2 == 0:
+    checkpoint.save(file_prefix = checkpoint_prefix)
+
+  print('Epoch {} Loss {:.4f}'.format(epoch + 1,
+                                      total_loss / steps_per_epoch))
+  print('Time taken for 1 epoch {} sec\n'.format(round(time.time() - start), 2))
+ 
+  # Test 5 heads
+  print('')
+  print(f'Sample from epoch: {epoch}')
+  for _ in range(5):
+      translate(get_random_head(heads))
+  print('')
+  
+  
+######################
+# Evalulate
+######################
+# restoring the latest checkpoint in checkpoint_dir
+checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
     
 
 # Test 5 heads
 for _ in range(5):
-    translate(get_random_head(heads))
+    translate(get_random_head(heads), plot = True)
     
 # Test my own
-translate(u' <sos>  hidden were the dark ages of my youth so the places i went were stolen from the wicked ')
+translate(u' <sos> the hound was big ')
