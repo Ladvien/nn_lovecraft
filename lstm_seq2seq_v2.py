@@ -537,7 +537,7 @@ def plot_attention(attention, sentence, predicted_sentence):
 
     plt.show()
     
-def translate(sentence, plot = False):
+def generate(sentence, plot = False):
     result, sentence, attention_plot = evaluate(sentence)
     print('Input: %s' % (sentence))
     print('Predicted: {}'.format(result))
@@ -581,7 +581,7 @@ for epoch in range(epochs):
   print('')
   print(f'Sample from epoch: {epoch}')
   for _ in range(5):
-      translate(get_random_head(heads))
+      generate(get_random_head(heads))
   print('')
   
   
@@ -594,7 +594,7 @@ checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
 
 # Test 5 heads
 for _ in range(5):
-    translate(get_random_head(heads), plot = True)
+    generate(get_random_head(heads), plot = True)
     
 # Test my own
-translate(u' <sos> the hound was big ')
+generate(u' <sos> the hound was big ')
