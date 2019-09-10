@@ -45,18 +45,18 @@ max_perc_sent           = 0.7
 corpus_samples          = 1
 freq_threshold          = 2
 
-max_sentence_len        = 150
+max_sentence_len        = 200
 
 epochs                  = 300
-embedding_dim           = 512
+embedding_dim           = 1024
 units                   = 1024
-batch_size              = 128
+batch_size              = 64
 attention_units         = 10
 decoder_hidden_units    = 64
 decoder_dropout         = 0.5   
 steps_per_epoch         = 10000
 
-split_sent_on           = r'[.,!?;]'
+split_sent_on           = r'[.!?]'
 
 workpath                = '/home/ladvien/nn_lovecraft'
 save_model_path         = '/home/ladvien/nn_lovecraft/data/models'
@@ -70,33 +70,54 @@ start_of_sent           = '<sos>'
 end_of_sent             = '<eos>'
 low_freq_word           = '<lfw>'
 
+
 ########################################
 # Aid functions                        #
 ########################################
 
 def clean_special_chars(text, convert_to_space = [], remove = []):
     
-    if len(convert_to_space) < 1:
-        convert_to_space = ['..', '—', '--', ':']
-        
-    if len(remove) < 1:
-        remove = ['"', '#', '$', '%', '&', '(', ')', '*', '+', '-', '/', '<', '=', '>', 
-                   '@', '[', '\\', ']', '^', '_', '`', '{', '|', '}', '~', '’', '“', '”']
+    ellipses = '<elp>'
     
-    # Replace sub-punctionations characters with space.
-    rx = '[' + re.escape(''.join(convert_to_space)) + ']'
-    text = re.sub(rx, ' ', text)
-
-    # Remove non-alphanumeric
-    rx = '[' + re.escape(''.join(remove)) + ']'
-    text = re.sub(rx, '', text)
+    text = text.lower()
+    
+    # Artifact
+    text = text.replace('return to table of contents', '')
+    
+    # Replace ellipses with token.
+    text = text.replace('. . .', ellipses)
+    text = text.replace('. . . .', ellipses)
+    
+    # Replaces new lines
+    text = re.sub('\n', '', text)
+    
+    # Replaces multiple spaces
+    text = re.sub(' +', ' ', text)
+    
+    # Replace handidness of quotations.
+    text = re.sub(r'[“”"()]', '', text)
+    
+    # Opens parantheticals and speed-ups.
+    text = re.sub('—', ' ', text)
+    
+    
+    punctionation_marks = ['.', ',', '!', '?', ';', ':', '\'s']
+    
+    for mark in punctionation_marks:
+        text = text.replace(mark, ' ' + mark + ' ')
+    
+    # Replaces multiple spaces
+    text = re.sub(' +', ' ', text)
+    
     return text
 
 def commonize_low_freq_words(sentences, word_frequencies, threshold, low_freq_word):
     
+    print('')
     print(f'Replacing low-frequency words with {low_freq_word}')
     
     index = 0
+    last_perc_comp = 0
     
     low_freq = []
     for key, value in word_frequencies.items():
@@ -113,9 +134,11 @@ def commonize_low_freq_words(sentences, word_frequencies, threshold, low_freq_wo
                 clean_sentence += ' ' + word
         clean_sentences.append(clean_sentence)      
         index += 1
+        
         perc_comp = int(round((index / len(sentences)) * 100, 2))
-        if perc_comp % 10 == 0:
-            print(f'Complete: {str(perc_comp)}%')        
+        if perc_comp % 10 == 0 and last_perc_comp < perc_comp:
+            print(f'Complete: {str(perc_comp)}%')
+            last_perc_comp = perc_comp
 
     return clean_sentences
     
@@ -517,7 +540,7 @@ def plot_attention(attention, sentence, predicted_sentence):
 def translate(sentence, plot = False):
     result, sentence, attention_plot = evaluate(sentence)
     print('Input: %s' % (sentence))
-    print('Predicted translation: {}'.format(result))
+    print('Predicted: {}'.format(result))
     
     if plot:
         attention_plot = attention_plot[:len(result.split(' ')), :len(sentence.split(' '))]
