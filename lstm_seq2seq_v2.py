@@ -33,27 +33,34 @@ tf.enable_eager_execution()
 ##############
 # http://complx.me/2016-12-31-practical-seq2seq/
 # https://colab.research.google.com/github/tensorflow/tensorflow/blob/master/tensorflow/contrib/eager/python/examples/nmt_with_attention/nmt_with_attention.ipynb
+# http://ruder.io/deep-learning-nlp-best-practices/index.html#bestpractices
+# https://github.com/andreamad8/Universal-Transformer-Pytorch
+# https://colab.research.google.com/github/tensorflow/docs/blob/r2.0rc/site/en/r2/tutorials/text/transformer.ipynb?authuser=1
 
 ##############
 # Parameters #
 ##############
 
-num_examples            = 50000
+test_sentence           = '<sos> the darkness my old friend '
+
+num_examples            = 5000000
 retain_threshold        = 15
-min_perc_sent           = 0.5
-max_perc_sent           = 0.7
-corpus_samples          = 1
+min_perc_sent           = 0.2
+max_perc_sent           = 0.8
+corpus_samples          = 10
 freq_threshold          = 2
 
 max_sentence_len        = 200
+min_sentence_len        = 20
 
 epochs                  = 300
-embedding_dim           = 1024
+embedding_dim           = 1536
 units                   = 1024
-batch_size              = 64
-attention_units         = 10
-decoder_hidden_units    = 64
-decoder_dropout         = 0.5   
+batch_size              = 32
+attention_units         = 24
+decoder_hidden_units    = 256
+encoder_dropout         = 0.5
+decoder_dropout         = 0.5
 steps_per_epoch         = 10000
 
 split_sent_on           = r'[.!?]'
@@ -61,6 +68,7 @@ split_sent_on           = r'[.!?]'
 workpath                = '/home/ladvien/nn_lovecraft'
 save_model_path         = '/home/ladvien/nn_lovecraft/data/models'
 corpus_path             = workpath + '/data/lovecraft_corpus.txt'
+output_filepath         = workpath + '/training_samples.txt'
 
 #################
 # Special Tokens
@@ -101,7 +109,7 @@ def clean_special_chars(text, convert_to_space = [], remove = []):
     text = re.sub('—', ' ', text)
     
     
-    punctionation_marks = ['.', ',', '!', '?', ';', ':', '\'s']
+    punctionation_marks = ['.', ',', '!', '?', ';', ':', '’s']
     
     for mark in punctionation_marks:
         text = text.replace(mark, ' ' + mark + ' ')
@@ -197,7 +205,7 @@ for sentence in sentences:
 for i in range(len(sentences)):
     sentences[i] = sentences[i].strip()
 
-# Get hte frequency of words
+# Get the frequency of words
 word_freqs = get_words_and_frequencies(text)
 
 # Divide the cleaned corpus into sentences
@@ -218,9 +226,9 @@ for _ in range(corpus_samples):
         
         # Get split ratio
         split_index = int(sentence_len * random.uniform(min_perc_sent, max_perc_sent))  
-        
+
         # Make sure there are enough words in sentence to create a head and butt.
-        if sentence_len > split_index:
+        if sentence_len > split_index and split_index > min_sentence_len:
             # Split the sentence at a random index.
             heads.append(' '.join(sent_word_list[0:split_index]))
             butts.append(' '.join(sent_word_list[split_index:sentence_len + 1]))
@@ -236,7 +244,7 @@ for i in range(len(heads)):
 #################################
 # Tokenize Heads and Butts      #
 #################################
-tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='!"#$%&()*+,-./:;=?@[\\]^_`{|}~\t\n')
+tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='')
 
 # Include model signals in the token set.
 special_tokens = [start_of_sent, end_of_sent, low_freq_word]
@@ -282,8 +290,6 @@ convert(tokenizer, target_tensor_train[random_sent])
 # MODEL Setup
 ########################
 BUFFER_SIZE             = len(input_tensor_train)
-
-
 vocab_inp_size          = len(tokenizer.word_index) + 1
 vocab_tar_size          = len(tokenizer.word_index) + 1
 
@@ -300,25 +306,27 @@ example_input_batch.shape, example_target_batch.shape
 # Seq2Seq
 #################
 class Encoder(tf.keras.Model):
-  def __init__(self, vocab_size, embedding_dim, enc_units, batch_sz):
+  def __init__(self, vocab_size, embedding_dim, enc_units, batch_sz, dropout = 0.5):
     super(Encoder, self).__init__()
     self.batch_sz = batch_sz
     self.enc_units = enc_units
     self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim)
+    self.dropout = tf.keras.layers.Dropout(dropout)
     self.gru = tf.keras.layers.GRU(self.enc_units,
                                    return_sequences=True,
                                    return_state=True,
                                    recurrent_initializer='glorot_uniform')
 
-  def call(self, x, hidden):
+  def call(self, x, hidden, dropout = 0.5):
     x = self.embedding(x)
+    x = self.dropout(x)
     output, state = self.gru(x, initial_state = hidden)
     return output, state
 
   def initialize_hidden_state(self):
     return tf.zeros((self.batch_sz, self.enc_units))
 
-encoder = Encoder(vocab_inp_size, embedding_dim, units, batch_size)
+encoder = Encoder(vocab_inp_size, embedding_dim, units, batch_size, encoder_dropout)
 
 # sample input
 sample_hidden = encoder.initialize_hidden_state()
@@ -493,7 +501,7 @@ def evaluate(sentence):
     result = ''
     
     hidden = [tf.zeros((1, units))]
-    enc_out, enc_hidden = encoder(inputs, hidden)
+    enc_out, enc_hidden = encoder(inputs, hidden, dropout = 0.0)
     
     dec_hidden = enc_hidden
     dec_input = tf.expand_dims([tokenizer.word_index[start_of_sent]], 0)
@@ -539,6 +547,7 @@ def plot_attention(attention, sentence, predicted_sentence):
     
 def generate(sentence, plot = False):
     result, sentence, attention_plot = evaluate(sentence)
+
     print('Input: %s' % (sentence))
     print('Predicted: {}'.format(result))
     
@@ -546,6 +555,7 @@ def generate(sentence, plot = False):
         attention_plot = attention_plot[:len(result.split(' ')), :len(sentence.split(' '))]
         plot_attention(attention_plot, sentence.split(' '), result.split(' '))
 
+    return result, sentence
 
 def get_random_head(heads):
     return heads[random.randint(0, len(heads))]
@@ -577,12 +587,23 @@ for epoch in range(epochs):
                                       total_loss / steps_per_epoch))
   print('Time taken for 1 epoch {} sec\n'.format(round(time.time() - start), 2))
  
-  # Test 5 heads
+  # Test
   print('')
   print(f'Sample from epoch: {epoch}')
-  for _ in range(5):
-      generate(get_random_head(heads))
+  with open(output_filepath, 'w+') as f:
+      # Save samples to file.
+      f.write(f'Epoch: {epoch}, loss: {str(batch_loss.numpy())}\n')
+      for _ in range(5): 
+          head = get_random_head(heads)
+          result, sentence = generate(head)
+          f.write(f'I: {head}\n')
+          f.write(f'O:{sentence}\n')        
+      result, sentence = generate(test_sentence)
+      f.write(f'TI: {test_sentence}')
+      f.write(f'O : {sentence}')
+      f.write('\n')
   print('')
+        
   
   
 ######################
