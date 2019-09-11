@@ -54,9 +54,9 @@ max_sentence_len        = 200
 min_sentence_len        = 20
 
 epochs                  = 300
-embedding_dim           = 1536
+embedding_dim           = 1408
 units                   = 1024
-batch_size              = 32
+batch_size              = 16
 attention_units         = 24
 decoder_hidden_units    = 256
 encoder_dropout         = 0.5
@@ -599,8 +599,8 @@ for epoch in range(epochs):
           f.write(f'I: {head}\n')
           f.write(f'O:{sentence}\n')        
       result, sentence = generate(test_sentence)
-      f.write(f'TI: {test_sentence}')
-      f.write(f'O : {sentence}')
+      f.write(f'TI: {test_sentence}\n')
+      f.write(f'O : {sentence}\n')
       f.write('\n')
   print('')
         
