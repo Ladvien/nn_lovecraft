@@ -1,12 +1,2 @@
-Epoch: 30, loss: 0.11882945
-I:  <sos>  only an effort halted him at a cafeteria in church street , and after the meal he felt the
-O: <sos> only an effort halted him at a cafeteria in church street , and after the meal he felt the
-I:  <sos>  tradition <lfw> the <lfw> of material barriers in halting a witch ’s motions ; and who can say
-O: <sos> tradition <lfw> the <lfw> of material barriers in halting a witch ’s motions ; and who can say
-I:  <sos>  he was again in the cramped , violet-litten peaked space with the slanting floor , the low cases of ancient
-O: <sos> he was again in the cramped , violet-litten peaked space with the slanting floor , the low cases of ancient
-I:  <sos>  a swirling vapour hid everything but the immediate sloping terrain from sight , and he shrank from the thought of the sounds
-O: <sos> a swirling vapour hid everything but the immediate sloping terrain from sight , and he shrank from the thought of the sounds
-I:  <sos>  a swirling vapour hid everything but the immediate sloping terrain from sight , and he shrank from the thought of the sounds
-O: <sos> a swirling vapour hid everything but the immediate sloping terrain from sight , and he shrank from the thought of the sounds
-TI: <sos> the darkness my old friend O : <sos> the darkness my old friend
+Working
+

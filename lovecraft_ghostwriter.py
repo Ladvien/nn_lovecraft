@@ -42,13 +42,14 @@ tf.enable_eager_execution()
 ##############
 
 test_sentence           = '<sos> the darkness my old friend '
+training_message        = 'Working'
 
 num_examples            = 5000000
 retain_threshold        = 15
 min_perc_sent           = 0.2
 max_perc_sent           = 0.8
 corpus_samples          = 10
-freq_threshold          = 2
+freq_threshold          = 1
 
 max_sentence_len        = 200
 min_sentence_len        = 20
@@ -61,7 +62,7 @@ attention_units         = 24
 decoder_hidden_units    = 256
 encoder_dropout         = 0.5
 decoder_dropout         = 0.5
-steps_per_epoch         = 10000
+steps_per_epoch         = 100
 
 split_sent_on           = r'[.!?]'
 
@@ -564,6 +565,9 @@ def get_random_head(heads):
 ######################
 # Train
 ######################
+with open(output_filepath, 'w+') as f:
+    f.write(f'{training_message}\n\n')
+    
 for epoch in range(epochs):
   start = time.time()
 
@@ -590,17 +594,17 @@ for epoch in range(epochs):
   # Test
   print('')
   print(f'Sample from epoch: {epoch}')
-  with open(output_filepath, 'w+') as f:
+  with open(output_filepath, 'a') as f:
       # Save samples to file.
       f.write(f'Epoch: {epoch}, loss: {str(batch_loss.numpy())}\n')
       for _ in range(5): 
           head = get_random_head(heads)
           result, sentence = generate(head)
           f.write(f'I: {head}\n')
-          f.write(f'O:{sentence}\n')        
+          f.write(f'O:{result}\n')        
       result, sentence = generate(test_sentence)
       f.write(f'TI: {test_sentence}\n')
-      f.write(f'O : {sentence}\n')
+      f.write(f'O : {result}\n')
       f.write('\n')
   print('')
         
@@ -617,5 +621,26 @@ checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
 for _ in range(5):
     generate(get_random_head(heads), plot = True)
     
-# Test my own
-generate(u' <sos> the hound was big ')
+def ghostwriter(text):
+    # Test my own
+    result, input_sentence = generate(text.lower().\
+                                      replace('.', ' ' + end_of_sent)\
+                                      .replace('\n', ' ')\
+                                      .replace('\t', '')\
+                                      .replace('\'s', ' ’s')\
+                                      .replace(',', ' ,')
+                                      )
+    result = result.replace(' ' + end_of_sent + ' ', '.')
+    input_sentence = input_sentence.replace(start_of_sent + ' ', '') + ' '
+    full_sentence = input_sentence + result
+    return full_sentence.capitalize()
+
+ghostwriter(u""" I could not help myself, the madness was ensuing, 
+            there was no end to all I had seen but I realised what my host had told me. 
+            I carried on throughout the night absurdly ignoring his mother's place in my mind. 
+            When my eye had never thought to watch for the delaying effect. 
+            If not for the pictures of people, I would have felt tested and strangely alone.
+            Though, some of the Mazurewicz were and dancing in the square of the yard for hours. 
+            Pursuing a delicate end for their captives, while I wished for loathing of the fire 
+            or to know where the choking room lie, since there had been little talk over
+            their share in the chimney, which he was not known to appreciate. """)
