@@ -28,6 +28,9 @@ import random
 import tensorflow.contrib.eager as tfe
 tf.enable_eager_execution()
 
+
+import gensim.downloader as api
+
 ##############
 # References #
 ##############
@@ -78,6 +81,22 @@ output_filepath         = workpath + '/training_samples.txt'
 start_of_sent           = '<sos>'  
 end_of_sent             = '<eos>'
 low_freq_word           = '<lfw>'
+
+##################
+# Load Embeddings
+##################
+print('Loading word vectors.')
+
+# Load embeddings
+#info = api.info()                       # show info about available models/datasets
+embedding_model = api.load("glove-wiki-gigaword-300")    # download the model and return as object ready for use
+
+vocab_size = len(embedding_model.vocab)
+
+index2word = embedding_model.index2word
+word2idx = {}
+for index in range(vocab_size):
+    word2idx[embedding_model.index2word[index]] = index
 
 
 ########################################
